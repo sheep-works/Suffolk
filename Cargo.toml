@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "crates/suffolk-ir",
+    "crates/suffolk-codec",
+    "crates/suffolk-formats",
+    "crates/suffolk-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.2"
+edition = "2021"
+authors = ["SheepFamily"]
+
