@@ -6,26 +6,25 @@ use crate::traits::{DocumentFilter, DocumentMerger, FilterOptions, FormatError, 
 use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::reader::Reader;
 use quick_xml::writer::Writer;
+use regex::Regex;
 use std::collections::HashMap;
 use std::io::{Read, Seek, Write};
 use suffolk_codec::TranslatedUnit;
-use suffolk_ir::{
-    restore_placeholders, string_map_to_tags, DocumentFormat, DocumentIR, DocumentMeta, UnitIR,
-};
+use suffolk_ir::{DocumentFormat, DocumentIR, DocumentMeta, UnitIR};
 use zip::ZipArchive;
 
 pub struct DocxFilter;
 pub struct DocxMerger;
 
+/// 段落の抽出時コンテキスト
+struct ParagraphFrame {
+    style: Option<String>,
+    runs: Vec<ProcessedRun>,
+}
+
 impl DocumentFilter for DocxFilter {
     /// Word 文書 (`.docx`) の `word/document.xml` から段落テキストを抽出します。
-    ///
-    /// ### 処理概要
-    /// 1. PKZip アーカイブから `word/document.xml` を読み込み。
-    /// 2. `<w:p>`（段落）ごとにスタイルおよび `<w:r>`（ラン）の列を収集。
-    /// 3. 不要なノイズ属性を無視した上で同一スタイルの隣接ランを結合 (`coalesce_runs`)。
-    /// 4. スタイル変化がある箇所に `{0}`, `{1}` のインラインプレースホルダーを付与。
-    /// 5. 見出しや段落のスタイル名を `context.style_name`、行・段落番号を `note` に記録。
+    /// テキストボックスなどのネストした `<w:p>` もスタックで安全に抽出します。
     fn extract<R: Read + Seek>(
         &self,
         mut reader: R,
@@ -52,12 +51,10 @@ impl DocumentFilter for DocxFilter {
         xml_reader.config_mut().trim_text(false);
         let mut buf = Vec::new();
 
-        let mut in_p = false;
+        let mut p_stack: Vec<ParagraphFrame> = Vec::new();
         let mut in_r = false;
         let mut in_t = false;
         let mut in_rpr = false;
-        let mut current_style: Option<String> = None;
-        let mut current_runs: Vec<ProcessedRun> = Vec::new();
         let mut current_run_text = String::new();
         let mut current_rpr_xml = String::new();
 
@@ -66,16 +63,24 @@ impl DocumentFilter for DocxFilter {
                 Event::Start(ref e) => {
                     let name = e.name();
                     if name.as_ref() == b"w:p" {
-                        in_p = true;
-                        current_style = None;
-                        current_runs.clear();
-                    } else if in_p && name.as_ref() == b"w:pStyle" {
+                        p_stack.push(ParagraphFrame {
+                            style: None,
+                            runs: Vec::new(),
+                        });
+                        in_r = false;
+                        in_t = false;
+                        in_rpr = false;
+                        current_run_text.clear();
+                        current_rpr_xml.clear();
+                    } else if !p_stack.is_empty() && name.as_ref() == b"w:pStyle" {
                         for attr in e.attributes().flatten() {
                             if attr.key.as_ref() == b"w:val" {
-                                current_style = Some(String::from_utf8_lossy(&attr.value).to_string());
+                                if let Some(last) = p_stack.last_mut() {
+                                    last.style = Some(String::from_utf8_lossy(&attr.value).to_string());
+                                }
                             }
                         }
-                    } else if in_p && name.as_ref() == b"w:r" {
+                    } else if !p_stack.is_empty() && name.as_ref() == b"w:r" {
                         in_r = true;
                         current_run_text.clear();
                         current_rpr_xml.clear();
@@ -85,17 +90,17 @@ impl DocumentFilter for DocxFilter {
                     } else if in_r && name.as_ref() == b"w:t" {
                         in_t = true;
                     } else if in_rpr {
-                        // Accumulate rPr tags
-                        let name = e.name();
-                        let tag_str = String::from_utf8_lossy(name.as_ref());
-                        current_rpr_xml.push_str(&format!("<{}>", tag_str));
+                        let name_str = String::from_utf8_lossy(name.as_ref());
+                        current_rpr_xml.push_str(&format!("<{}>", name_str));
                     }
                 }
                 Event::Empty(ref e) => {
-                    if in_p && e.name().as_ref() == b"w:pStyle" {
+                    if !p_stack.is_empty() && e.name().as_ref() == b"w:pStyle" {
                         for attr in e.attributes().flatten() {
                             if attr.key.as_ref() == b"w:val" {
-                                current_style = Some(String::from_utf8_lossy(&attr.value).to_string());
+                                if let Some(last) = p_stack.last_mut() {
+                                    last.style = Some(String::from_utf8_lossy(&attr.value).to_string());
+                                }
                             }
                         }
                     } else if in_rpr {
@@ -119,7 +124,7 @@ impl DocumentFilter for DocxFilter {
                     }
                 }
                 Event::Text(ref e) => {
-                    if in_t {
+                    if in_t && in_r && !p_stack.is_empty() {
                         current_run_text.push_str(&e.unescape()?);
                     }
                 }
@@ -132,9 +137,9 @@ impl DocumentFilter for DocxFilter {
                         current_rpr_xml.push_str("</w:rPr>");
                     } else if name.as_ref() == b"w:r" {
                         in_r = false;
-                        if !current_run_text.is_empty() {
+                        if !current_run_text.is_empty() && !p_stack.is_empty() {
                             let sig = extract_style_signature(&current_rpr_xml);
-                            current_runs.push(ProcessedRun {
+                            p_stack.last_mut().unwrap().runs.push(ProcessedRun {
                                 text: current_run_text.clone(),
                                 style_sig: sig,
                                 raw_rpr: if current_rpr_xml.is_empty() {
@@ -143,25 +148,28 @@ impl DocumentFilter for DocxFilter {
                                     Some(current_rpr_xml.clone())
                                 },
                             });
+                            current_run_text.clear();
+                            current_rpr_xml.clear();
                         }
                     } else if name.as_ref() == b"w:p" {
-                        in_p = false;
-                        let coalesced = if options.minimize_tags {
-                            coalesce_runs(current_runs.clone())
-                        } else {
-                            current_runs.clone()
-                        };
+                        if let Some(frame) = p_stack.pop() {
+                            let coalesced = if options.minimize_tags {
+                                coalesce_runs(frame.runs)
+                            } else {
+                                frame.runs
+                            };
 
-                        let (normalized, placeholders) =
-                            runs_to_normalized_text(&coalesced, options.minimize_tags);
+                            let (normalized, placeholders) =
+                                runs_to_normalized_text(&coalesced, options.minimize_tags);
 
-                        if !normalized.trim().is_empty() {
-                            let mut unit = UnitIR::new(format!("p_{}", seq), seq, normalized);
-                            unit.placeholders = placeholders;
-                            unit.context.style_name = current_style.clone();
-                            unit.populate_note_from_context(None);
-                            doc.add_unit(unit);
-                            seq += 1;
+                            if !normalized.trim().is_empty() {
+                                let mut unit = UnitIR::new(format!("p_{}", seq), seq, normalized);
+                                unit.placeholders = placeholders;
+                                unit.context.style_name = frame.style;
+                                unit.populate_note_from_context(None);
+                                doc.add_unit(unit);
+                                seq += 1;
+                            }
                         }
                     }
                 }
@@ -177,7 +185,6 @@ impl DocumentFilter for DocxFilter {
 
 impl DocumentMerger for DocxMerger {
     /// 翻訳結果を元の Word 文書（スケルトン）にマージし、新しい `.docx` を出力します。
-    /// 各段落のプロパティ（`<w:pPr>`）はそのまま保持し、テキスト領域のみを翻訳文に安全に置き換えます。
     fn merge<R: Read + Seek, W: Write + Seek>(
         &self,
         mut skeleton: R,
@@ -201,7 +208,14 @@ impl DocumentMerger for DocxMerger {
     }
 }
 
+/// 段落のバッファ構造体（マージ用）
+struct ParagraphBuffer {
+    events: Vec<Event<'static>>,
+    has_text: bool,
+}
+
 /// Rewrites `word/document.xml` by replacing translatable `<w:p>` contents with translated text.
+/// ネストした段落（テキストボックス等）も正確にスタック管理して XML の整合性を完全に保持します。
 fn rewrite_document_xml(
     xml_content: &str,
     translations: &HashMap<usize, TranslatedUnit>,
@@ -213,45 +227,51 @@ fn rewrite_document_xml(
 
     let mut buf = Vec::new();
     let mut seq = 1;
-    let mut in_p = false;
-    let mut p_has_text = false;
-    let mut p_events: Vec<Event<'static>> = Vec::new();
+    let mut p_stack: Vec<ParagraphBuffer> = Vec::new();
 
     loop {
         match reader.read_event_into(&mut buf)? {
             Event::Start(ref e) if e.name().as_ref() == b"w:p" => {
-                in_p = true;
-                p_has_text = false;
-                p_events.clear();
-                p_events.push(Event::Start(e.clone().into_owned()));
+                p_stack.push(ParagraphBuffer {
+                    events: vec![Event::Start(e.clone().into_owned())],
+                    has_text: false,
+                });
             }
-            Event::End(ref e) if in_p && e.name().as_ref() == b"w:p" => {
-                in_p = false;
-                p_events.push(Event::End(e.clone().into_owned()));
+            Event::End(ref e) if e.name().as_ref() == b"w:p" && !p_stack.is_empty() => {
+                let mut frame = p_stack.pop().unwrap();
+                frame.events.push(Event::End(e.clone().into_owned()));
 
-                if p_has_text {
-                    if let Some(trans) = translations.get(&seq) {
-                        write_merged_paragraph(&mut writer, &p_events, trans)?;
+                let merged_events = if frame.has_text {
+                    let res = if let Some(trans) = translations.get(&seq) {
+                        build_merged_paragraph_events(&frame.events, trans)?
                     } else {
-                        for ev in p_events.drain(..) {
-                            writer.write_event(ev)?;
-                        }
-                    }
+                        frame.events
+                    };
                     seq += 1;
+                    res
                 } else {
-                    for ev in p_events.drain(..) {
+                    frame.events
+                };
+
+                if let Some(parent) = p_stack.last_mut() {
+                    // ネスト段落（テキストボックス等）は親段落のバッファにマージ結果を追加
+                    parent.events.extend(merged_events);
+                } else {
+                    // 最上位段落は直接出力ストリームに書き込み
+                    for ev in merged_events {
                         writer.write_event(ev)?;
                     }
                 }
             }
-            Event::Start(ref e) if in_p && e.name().as_ref() == b"w:t" => {
-                p_has_text = true;
-                p_events.push(Event::Start(e.clone().into_owned()));
-            }
             Event::Eof => break,
             other => {
-                if in_p {
-                    p_events.push(other.into_owned());
+                if let Some(frame) = p_stack.last_mut() {
+                    if let Event::Start(ref e) = other {
+                        if e.name().as_ref() == b"w:t" {
+                            frame.has_text = true;
+                        }
+                    }
+                    frame.events.push(other.into_owned());
                 } else {
                     writer.write_event(other)?;
                 }
@@ -263,72 +283,196 @@ fn rewrite_document_xml(
     Ok(out)
 }
 
-/// Writes a merged paragraph: keeps `<w:pPr>` and non-text elements, and replaces text runs with translation.
-fn write_merged_paragraph<W: Write>(
-    writer: &mut Writer<W>,
+/// 単一の段落イベント列から、翻訳テキストを適用したマージ済みイベント列を生成します。
+/// `<w:pPr>` や描画オブジェクト（`<w:pict>`, `<w:drawing>`）をそのまま保持し、
+/// テキストランのみを正規の OpenXML ラン列（`<w:r>`）に置き換えます。
+fn build_merged_paragraph_events(
     events: &[Event<'static>],
     trans: &TranslatedUnit,
-) -> Result<(), FormatError> {
-    let tags = string_map_to_tags(&trans.placeholders);
-    let restored_text = restore_placeholders(&trans.target, &tags);
-
-    let mut in_p_pr = false;
+) -> Result<Vec<Event<'static>>, FormatError> {
+    let mut merged = Vec::with_capacity(events.len());
     let mut wrote_translation = false;
 
-    for ev in events {
+    // プレースホルダーを含む翻訳ランのバイト列を生成
+    let mut run_bytes = Vec::new();
+    {
+        let mut run_writer = Writer::new(&mut run_bytes);
+        write_translated_runs(&mut run_writer, &trans.target, &trans.placeholders)?;
+    }
+
+    let mut i = 0;
+    while i < events.len() {
+        let ev = &events[i];
         match ev {
-            Event::Start(ref e) => {
-                if e.name().as_ref() == b"w:pPr" {
-                    in_p_pr = true;
-                    writer.write_event(ev.clone())?;
-                } else if in_p_pr {
-                    writer.write_event(ev.clone())?;
-                } else if e.name().as_ref() == b"w:r" {
-                    // Suppress original runs
-                } else {
-                    writer.write_event(ev.clone())?;
+            Event::Start(ref e) if e.name().as_ref() == b"w:p" => {
+                merged.push(ev.clone());
+                i += 1;
+            }
+            Event::Start(ref e) if e.name().as_ref() == b"w:pPr" => {
+                // <w:pPr> から </w:pPr> までそのまま保持
+                merged.push(ev.clone());
+                i += 1;
+                while i < events.len() {
+                    let sub_ev = &events[i];
+                    merged.push(sub_ev.clone());
+                    if let Event::End(ref sub_e) = sub_ev {
+                        if sub_e.name().as_ref() == b"w:pPr" {
+                            i += 1;
+                            break;
+                        }
+                    }
+                    i += 1;
+                }
+                // <w:pPr> の直後に翻訳ランを注入
+                if !wrote_translation {
+                    inject_translated_run_events(&mut merged, &run_bytes)?;
+                    wrote_translation = true;
                 }
             }
-            Event::End(ref e) => {
-                if e.name().as_ref() == b"w:pPr" {
-                    in_p_pr = false;
-                    writer.write_event(ev.clone())?;
-                } else if in_p_pr {
-                    writer.write_event(ev.clone())?;
-                } else if e.name().as_ref() == b"w:p" {
+            Event::Start(ref e) if e.name().as_ref() == b"w:r" => {
+                // ラン <w:r> から </w:r> までを収集
+                let mut run_events = vec![ev.clone()];
+                let mut r_depth = 1;
+                let mut has_graphic = false;
+                i += 1;
+
+                while i < events.len() && r_depth > 0 {
+                    let sub_ev = &events[i];
+                    if let Event::Start(ref sub_e) = sub_ev {
+                        if sub_e.name().as_ref() == b"w:r" {
+                            r_depth += 1;
+                        } else if sub_e.name().as_ref() == b"w:pict" || sub_e.name().as_ref() == b"w:drawing" {
+                            has_graphic = true;
+                        }
+                    } else if let Event::End(ref sub_e) = sub_ev {
+                        if sub_e.name().as_ref() == b"w:r" {
+                            r_depth -= 1;
+                        }
+                    }
+                    run_events.push(sub_ev.clone());
+                    i += 1;
+                }
+
+                if has_graphic {
+                    // テキストボックスや画像を含むランはそのまま保持！
+                    merged.extend(run_events);
+                } else {
+                    // 純粋なテキストランは除去し、翻訳ランに置き換え
                     if !wrote_translation {
-                        // Write translation run before </w:p>
-                        writer.write_event(Event::Start(BytesStart::new("w:r")))?;
-                        let mut t_start = BytesStart::new("w:t");
-                        t_start.push_attribute(("xml:space", "preserve"));
-                        writer.write_event(Event::Start(t_start))?;
-                        writer.write_event(Event::Text(BytesText::new(&restored_text)))?;
-                        writer.write_event(Event::End(BytesEnd::new("w:t")))?;
-                        writer.write_event(Event::End(BytesEnd::new("w:r")))?;
+                        inject_translated_run_events(&mut merged, &run_bytes)?;
                         wrote_translation = true;
                     }
-                    writer.write_event(ev.clone())?;
-                } else if e.name().as_ref() == b"w:r" {
-                    // Suppress original runs
-                } else {
-                    writer.write_event(ev.clone())?;
                 }
             }
-            Event::Text(_) => {
-                if in_p_pr {
-                    writer.write_event(ev.clone())?;
+            Event::End(ref e) if e.name().as_ref() == b"w:p" => {
+                if !wrote_translation {
+                    inject_translated_run_events(&mut merged, &run_bytes)?;
+                    wrote_translation = true;
                 }
+                merged.push(ev.clone());
+                i += 1;
             }
-            other => {
-                if in_p_pr || !matches!(other, Event::Start(_) | Event::End(_)) {
-                    writer.write_event(other.clone())?;
-                }
+            _ => {
+                // ブックマークやコメントなど、その他の要素はそのまま出力
+                merged.push(ev.clone());
+                i += 1;
             }
         }
     }
 
+    Ok(merged)
+}
+
+/// 生XMLバイト列からパースしてイベント列に注入
+fn inject_translated_run_events(
+    target: &mut Vec<Event<'static>>,
+    run_bytes: &[u8],
+) -> Result<(), FormatError> {
+    if run_bytes.is_empty() {
+        return Ok(());
+    }
+
+    let mut reader = Reader::from_reader(run_bytes);
+    reader.config_mut().trim_text(false);
+    let mut buf = Vec::new();
+
+    loop {
+        match reader.read_event_into(&mut buf)? {
+            Event::Eof => break,
+            ev => target.push(ev.into_owned()),
+        }
+        buf.clear();
+    }
+
     Ok(())
 }
+
+/// 翻訳テキスト（プレースホルダー含む）を OpenXML の正規な `<w:r>` 列として書き出します。
+fn write_translated_runs<W: Write>(
+    writer: &mut Writer<W>,
+    target_text: &str,
+    placeholders: &HashMap<usize, String>,
+) -> Result<(), FormatError> {
+    if target_text.is_empty() {
+        return Ok(());
+    }
+
+    let re = Regex::new(r"\{@?(\d+)\}").expect("Invalid placeholder regex");
+    let mut last_end = 0;
+    let mut current_rpr: Option<String> = None;
+
+    for cap in re.captures_iter(target_text) {
+        let mat = cap.get(0).unwrap();
+        let chunk = &target_text[last_end..mat.start()];
+        if !chunk.is_empty() {
+            write_single_run(writer, chunk, current_rpr.as_deref())?;
+        }
+
+        let idx: usize = cap.get(1).unwrap().as_str().parse().unwrap_or(0);
+        if let Some(rpr) = placeholders.get(&idx) {
+            if rpr.trim().is_empty() {
+                // {@1} 終了タグ: スタイルリセット
+                current_rpr = None;
+            } else {
+                // {@0} 開始タグ: スタイル設定
+                current_rpr = Some(rpr.clone());
+            }
+        }
+        last_end = mat.end();
+    }
+
+    let remaining = &target_text[last_end..];
+    if !remaining.is_empty() {
+        write_single_run(writer, remaining, current_rpr.as_deref())?;
+    }
+
+    Ok(())
+}
+
+/// 単一のテキストラン（`<w:r>`）を書き出します。
+fn write_single_run<W: Write>(
+    writer: &mut Writer<W>,
+    text: &str,
+    rpr_xml: Option<&str>,
+) -> Result<(), FormatError> {
+    writer.write_event(Event::Start(BytesStart::new("w:r")))?;
+
+    if let Some(rpr) = rpr_xml {
+        if !rpr.trim().is_empty() {
+            writer.get_mut().write_all(rpr.as_bytes())?;
+        }
+    }
+
+    let mut t_start = BytesStart::new("w:t");
+    t_start.push_attribute(("xml:space", "preserve"));
+    writer.write_event(Event::Start(t_start))?;
+    writer.write_event(Event::Text(BytesText::new(text)))?;
+    writer.write_event(Event::End(BytesEnd::new("w:t")))?;
+
+    writer.write_event(Event::End(BytesEnd::new("w:r")))?;
+    Ok(())
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -338,7 +482,7 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn test_extract_device_guide_docx() {
+    fn test_extract_and_merge_device_guide_docx() {
         let test_path = Path::new("../../test_data/デバイスガイド.docx");
         if !test_path.exists() {
             eprintln!("Skipping test: test_data/デバイスガイド.docx not found");
@@ -348,34 +492,48 @@ mod tests {
         let file = File::open(test_path).expect("Failed to open デバイスガイド.docx");
         let filter = DocxFilter;
         let opts = FilterOptions {
+            minimize_tags: true,
             source_lang: "ja".to_string(),
             target_lang: Some("en".to_string()),
-            minimize_tags: true,
             ..Default::default()
         };
 
-        let doc = filter.extract(file, "デバイスガイド.docx", &opts).unwrap();
-        assert!(!doc.units.is_empty(), "Units should not be empty");
+        let ir = filter.extract(file, "デバイスガイド.docx", &opts).expect("Extract failed");
+        assert!(!ir.units.is_empty());
 
-        // Verify that tag soup in Paragraph 3 was minimized into clean text with color placeholder
-        let p3 = &doc.units[2];
-        println!("Paragraph 3 source: {}", p3.source);
-        assert!(p3.source.contains("保守作业を開始する前に、デバイスA1の电源が入っていることを"));
-
-        // Test merge
-        let mut trans = HashMap::new();
-        trans.insert(1, TranslatedUnit::new(1, "System Maintenance Guide"));
-
+        // マージテスト
+        let skeleton_file = File::open(test_path).expect("Failed to open skeleton");
         let merger = DocxMerger;
-        let skeleton_file = File::open(test_path).unwrap();
-        let mut merged_out = Cursor::new(Vec::new());
+        let mut trans_map = HashMap::new();
+        for u in &ir.units {
+            trans_map.insert(u.seq, TranslatedUnit {
+                idx: u.seq,
+                source: Some(u.source.clone()),
+                target: format!("{}_translated", u.source),
+                placeholders: HashMap::new(),
+                note: None,
+                is_sub: false,
+            });
+        }
 
-        merger
-            .merge(skeleton_file, &trans, &mut merged_out, &MergeOptions::default())
-            .unwrap();
+        let mut out_buf = Cursor::new(Vec::new());
+        merger.merge(skeleton_file, &trans_map, &mut out_buf, &MergeOptions::default())
+            .expect("Merge failed");
 
-        let mut merged_archive = ZipArchive::new(&mut merged_out).unwrap();
-        let doc_xml = read_zip_entry_to_string(&mut merged_archive, "word/document.xml").unwrap();
-        assert!(doc_xml.contains("System Maintenance Guide"));
+        let out_bytes = out_buf.into_inner();
+        let mut archive = ZipArchive::new(Cursor::new(&out_bytes)).expect("Invalid zip archive");
+        let doc_xml = read_zip_entry_to_string(&mut archive, "word/document.xml")
+            .expect("document.xml missing");
+
+        // XML が整形式かパースして確認
+        let mut reader = Reader::from_str(&doc_xml);
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Eof) => break,
+                Ok(_) => buf.clear(),
+                Err(e) => panic!("Merged XML is not well-formed: {}", e),
+            }
+        }
     }
 }

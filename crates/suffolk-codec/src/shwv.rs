@@ -417,16 +417,27 @@ impl ShWvData {
                 }
 
                 block_seq += 1;
-                current_target = unit.tgt.clone();
+                // 未翻訳（tgt が空）の場合は原文（src）をフォールバックとして採用
+                let effective_tgt = if unit.tgt.trim().is_empty() {
+                    unit.src.clone()
+                } else {
+                    unit.tgt.clone()
+                };
+                current_target = effective_tgt;
                 current_placeholders = unit.placeholders.clone().unwrap_or_default();
                 current_note = unit.note.clone();
                 current_source = Some(unit.src.clone());
             } else {
                 // サブセグメントを直前のブロックへ結合
+                let effective_sub_tgt = if unit.tgt.trim().is_empty() {
+                    unit.src.clone()
+                } else {
+                    unit.tgt.clone()
+                };
                 if !is_cjk && !current_target.is_empty() && !current_target.ends_with(' ') {
                     current_target.push(' ');
                 }
-                current_target.push_str(&unit.tgt);
+                current_target.push_str(&effective_sub_tgt);
                 if let Some(ref ph) = unit.placeholders {
                     current_placeholders.extend(ph.clone());
                 }
@@ -519,15 +530,25 @@ pub fn recombine_translated_units(
                 );
             }
             block_seq += 1;
-            current_target = unit.target.clone();
+            let effective_tgt = if unit.target.trim().is_empty() {
+                unit.source.clone().unwrap_or_default()
+            } else {
+                unit.target.clone()
+            };
+            current_target = effective_tgt;
             current_placeholders = unit.placeholders.clone();
             current_note = unit.note.clone();
             current_source = unit.source.clone();
         } else {
+            let effective_sub_tgt = if unit.target.trim().is_empty() {
+                unit.source.clone().unwrap_or_default()
+            } else {
+                unit.target.clone()
+            };
             if !is_cjk && !current_target.is_empty() && !current_target.ends_with(' ') {
                 current_target.push(' ');
             }
-            current_target.push_str(&unit.target);
+            current_target.push_str(&effective_sub_tgt);
             current_placeholders.extend(unit.placeholders.clone());
         }
     }

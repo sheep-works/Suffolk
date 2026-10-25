@@ -766,7 +766,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "suffolk-cli"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -778,7 +778,7 @@ dependencies = [
 
 [[package]]
 name = "suffolk-codec"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "csv",
  "quick-xml",
@@ -790,7 +790,7 @@ dependencies = [
 
 [[package]]
 name = "suffolk-formats"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "csv",
  "encoding_rs",
@@ -808,7 +808,7 @@ dependencies = [
 
 [[package]]
 name = "suffolk-ir"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "regex",
  "serde",
@@ -818,7 +818,7 @@ dependencies = [
 
 [[package]]
 name = "suffolk-wasm"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "js-sys",
  "regex",

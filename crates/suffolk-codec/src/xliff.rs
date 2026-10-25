@@ -186,6 +186,12 @@ pub fn parse_xliff_12<R: BufRead>(reader: R) -> Result<HashMap<usize, Translated
                     in_note = false;
                 } else if name.as_ref() == b"trans-unit" {
                     if let Some(id) = current_id.take() {
+                        let effective_target = if current_target.trim().is_empty() {
+                            current_source.clone()
+                        } else {
+                            current_target.clone()
+                        };
+
                         units_list.push(TranslatedUnit {
                             idx: id,
                             source: if current_source.is_empty() {
@@ -193,7 +199,7 @@ pub fn parse_xliff_12<R: BufRead>(reader: R) -> Result<HashMap<usize, Translated
                             } else {
                                 Some(current_source.clone())
                             },
-                            target: current_target.clone(),
+                            target: effective_target,
                             placeholders: HashMap::new(),
                             note: if current_note.is_empty() {
                                 None

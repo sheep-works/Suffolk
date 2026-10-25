@@ -1,0 +1,268 @@
+{
+  "define": {
+    "name": "SHWV_DATA",
+    "version": "1.5"
+  },
+  "meta": {
+    "bilingualPath": "project.json",
+    "files": [
+      {
+        "name": "デバイスガイド.docx",
+        "start": 1,
+        "end": 17
+      }
+    ],
+    "sourceLang": "en",
+    "targetLang": "ja",
+    "workflow": {
+      "index": 0,
+      "role": "Extract",
+      "name": "Suffolk",
+      "segmentation": "line"
+    }
+  },
+  "body": {
+    "units": [
+      {
+        "idx": 1,
+        "src": "システム保守ガイド",
+        "pre": "",
+        "tgt": "系统维护指南",
+        "note": "[Style: 1]",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        }
+      },
+      {
+        "idx": 2,
+        "src": "はじめに",
+        "pre": "",
+        "tgt": "",
+        "note": "[Style: 2]",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        }
+      },
+      {
+        "idx": 3,
+        "src": "保守作业を開始する前に、デバイスA1の电源が入っていることを{@0}確認してください{@1}。保守画面を開くには、ツールバーの［保守］ボタンをクリックします。［保守］ボタンを使用できない場合は、アプリケーションを{@2}再起動 (reboot -s){@3}して再度お試しください。",
+        "pre": "",
+        "tgt": "",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        },
+        "placeholders": {
+          "2": "<w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:eastAsia=\"SimSun\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:hint=\"eastAsia\"/><w:b/><w:bCs/></w:rPr>",
+          "0": "<w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:eastAsia=\"SimSun\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:hint=\"eastAsia\"/><w:color w:val=\"FF0000\"/></w:rPr>",
+          "1": "",
+          "3": ""
+        }
+      },
+      {
+        "idx": 4,
+        "src": "保守作业を開始する前に、デバイスA2の电源が入っていることを確認してください。保守設定を保存するには、［保存］ボタンをクリックします。保守設定を保存した後、アプリケーション[Sheep Songs]を再起動します。",
+        "pre": "",
+        "tgt": "",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        }
+      },
+      {
+        "idx": 5,
+        "src": "保守作业を開始する前に、デバイス{@0}B1{@1}の电源が入っていることを確認してください。診断設定画面を開くには、{@2}ツールバーの{@3}［保守］ボタンをクリックします。",
+        "pre": "",
+        "tgt": "",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        },
+        "placeholders": {
+          "1": "",
+          "2": "<w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:eastAsia=\"SimSun\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:hint=\"eastAsia\"/><w:strike/><w:color w:val=\"FF0000\"/></w:rPr>",
+          "3": "",
+          "0": "<w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:hint=\"eastAsia\"/><w:strike/></w:rPr>"
+        }
+      },
+      {
+        "idx": 6,
+        "src": "診断設定画面が表示されない場合は、デバイスA-1が正しく接続されていることを確認してください。",
+        "pre": "",
+        "tgt": "",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        }
+      },
+      {
+        "idx": 7,
+        "src": "保存",
+        "pre": "",
+        "tgt": "",
+        "note": "[Style: 2]",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        }
+      },
+      {
+        "idx": 8,
+        "src": "保守設定を保存するには、［保存］ボタンをクリックします。保守設定を保存した後、アプリケーションを再起動します。タスクが完了すると、システムは通知メッセージを表示します。タスクが正常に完了すると、システムは通知メッセージを表示します。",
+        "pre": "",
+        "tgt": "",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        }
+      },
+      {
+        "idx": 9,
+        "src": "サーバー名を入力した後、［適用］ボタンをクリックします。",
+        "pre": "",
+        "tgt": "",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        }
+      },
+      {
+        "idx": 10,
+        "src": "サーバー名を入力した後、［適用］ボタンをクリックします。サーバー名を入力した後、［適用］ボタンをクリックします。サーバー名を入力した後、［適用］ボタンをクリックします。",
+        "pre": "",
+        "tgt": "",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        }
+      },
+      {
+        "idx": 11,
+        "src": "タスクを完了できない場合",
+        "pre": "",
+        "tgt": "",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        }
+      },
+      {
+        "idx": 12,
+        "src": "システムは警告メッセージを表示します。",
+        "pre": "",
+        "tgt": "",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        }
+      },
+      {
+        "idx": 13,
+        "src": "タスクに失敗した場合",
+        "pre": "",
+        "tgt": "",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        }
+      },
+      {
+        "idx": 14,
+        "src": "システムは警告メッセージを表示します。",
+        "pre": "",
+        "tgt": "",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        }
+      },
+      {
+        "idx": 15,
+        "src": "モジュールAの場合、［サーバー］フィールドにサーバー名を入力します。",
+        "pre": "",
+        "tgt": "",
+        "note": "[Style: a9]",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        }
+      },
+      {
+        "idx": 16,
+        "src": "モジュールBの場合、［サーバー］フィールドにサーバー名を入力します。",
+        "pre": "",
+        "tgt": "",
+        "note": "[Style: a9]",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        }
+      },
+      {
+        "idx": 17,
+        "src": "モジュールCの場合、［サーバー］フィールドにサーバー名を入力します。",
+        "pre": "",
+        "tgt": "",
+        "note": "[Style: a9]",
+        "status": 0,
+        "ref": {
+          "tms": [],
+          "tb": [],
+          "quoted": [],
+          "quoted100": []
+        }
+      }
+    ],
+    "terms": []
+  }
+}

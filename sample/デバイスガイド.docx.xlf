@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file original="デバイスガイド.docx" source-language="en" target-language="ja" datatype="xml">
+    <header>
+      <tool tool-id="suffolk" tool-name="suffolk"/>
+    </header>
+    <body>
+      <trans-unit id="1" resname="p_1">
+        <source xml:lang="en">システム保守ガイド</source>
+        <target xml:lang="ja"></target>
+        <note>[Style: 1]</note>
+      </trans-unit>
+      <trans-unit id="2" resname="p_2">
+        <source xml:lang="en">はじめに</source>
+        <target xml:lang="ja"></target>
+        <note>[Style: 2]</note>
+      </trans-unit>
+      <trans-unit id="3" resname="p_3">
+        <source xml:lang="en">保守作业を開始する前に、デバイスA1の电源が入っていることを{@0}確認してください{@1}。保守画面を開くには、ツールバーの［保守］ボタンをクリックします。［保守］ボタンを使用できない場合は、アプリケーションを{@2}再起動 (reboot -s){@3}して再度お試しください。</source>
+        <target xml:lang="ja"></target>
+      </trans-unit>
+      <trans-unit id="4" resname="p_4">
+        <source xml:lang="en">保守作业を開始する前に、デバイスA2の电源が入っていることを確認してください。保守設定を保存するには、［保存］ボタンをクリックします。保守設定を保存した後、アプリケーション[Sheep Songs]を再起動します。</source>
+        <target xml:lang="ja"></target>
+      </trans-unit>
+      <trans-unit id="5" resname="p_5">
+        <source xml:lang="en">保守作业を開始する前に、デバイス{@0}B1{@1}の电源が入っていることを確認してください。診断設定画面を開くには、{@2}ツールバーの{@3}［保守］ボタンをクリックします。</source>
+        <target xml:lang="ja"></target>
+      </trans-unit>
+      <trans-unit id="6" resname="p_6">
+        <source xml:lang="en">診断設定画面が表示されない場合は、デバイスA-1が正しく接続されていることを確認してください。</source>
+        <target xml:lang="ja"></target>
+      </trans-unit>
+      <trans-unit id="7" resname="p_7">
+        <source xml:lang="en">保存</source>
+        <target xml:lang="ja"></target>
+        <note>[Style: 2]</note>
+      </trans-unit>
+      <trans-unit id="8" resname="p_8">
+        <source xml:lang="en">保守設定を保存するには、［保存］ボタンをクリックします。保守設定を保存した後、アプリケーションを再起動します。タスクが完了すると、システムは通知メッセージを表示します。タスクが正常に完了すると、システムは通知メッセージを表示します。</source>
+        <target xml:lang="ja"></target>
+      </trans-unit>
+      <trans-unit id="9" resname="p_9">
+        <source xml:lang="en">サーバー名を入力した後、［適用］ボタンをクリックします。</source>
+        <target xml:lang="ja"></target>
+      </trans-unit>
+      <trans-unit id="10" resname="p_10">
+        <source xml:lang="en">サーバー名を入力した後、［適用］ボタンをクリックします。サーバー名を入力した後、［適用］ボタンをクリックします。サーバー名を入力した後、［適用］ボタンをクリックします。</source>
+        <target xml:lang="ja"></target>
+      </trans-unit>
+      <trans-unit id="11" resname="p_11">
+        <source xml:lang="en">タスクを完了できない場合</source>
+        <target xml:lang="ja"></target>
+      </trans-unit>
+      <trans-unit id="12" resname="p_12">
+        <source xml:lang="en">システムは警告メッセージを表示します。</source>
+        <target xml:lang="ja"></target>
+      </trans-unit>
+      <trans-unit id="13" resname="p_13">
+        <source xml:lang="en">タスクに失敗した場合</source>
+        <target xml:lang="ja"></target>
+      </trans-unit>
+      <trans-unit id="14" resname="p_14">
+        <source xml:lang="en">システムは警告メッセージを表示します。</source>
+        <target xml:lang="ja"></target>
+      </trans-unit>
+      <trans-unit id="15" resname="p_15">
+        <source xml:lang="en">モジュールAの場合、［サーバー］フィールドにサーバー名を入力します。</source>
+        <target xml:lang="ja"></target>
+        <note>[Style: a9]</note>
+      </trans-unit>
+      <trans-unit id="16" resname="p_16">
+        <source xml:lang="en">モジュールBの場合、［サーバー］フィールドにサーバー名を入力します。</source>
+        <target xml:lang="ja"></target>
+        <note>[Style: a9]</note>
+      </trans-unit>
+      <trans-unit id="17" resname="p_17">
+        <source xml:lang="en">モジュールCの場合、［サーバー］フィールドにサーバー名を入力します。</source>
+        <target xml:lang="ja"></target>
+        <note>[Style: a9]</note>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>
