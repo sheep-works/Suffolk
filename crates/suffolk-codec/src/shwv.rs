@@ -459,7 +459,7 @@ impl ShWvData {
 }
 
 /// 各フォーマットの Merger（復元処理）が参照する翻訳済みユニット情報
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TranslatedUnit {
     /// ユニット通番（または段落通番）
     pub idx: usize,

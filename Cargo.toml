@@ -4,6 +4,7 @@ members = [
     "crates/suffolk-codec",
     "crates/suffolk-formats",
     "crates/suffolk-cli",
+    "crates/suffolk-wasm",
 ]
 resolver = "2"
 

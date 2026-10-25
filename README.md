@@ -11,7 +11,7 @@ Web 翻訳支援ツール（CAT）**SheepCombWeb** のデータスキーマ（[`
 
 1. **Pure Rust 設計（依存ライブラリゼロ）**
    - C/C++ ネイティブライブラリや Java 実行環境（JRE）への依存が一切ありません。
-   - 単一の自己完結型バイナリ（`suffolk.exe`）として即座に動作し、将来的に **WebAssembly (WASM)** にコンパイルしてブラウザ（SheepCombWeb SPA）内で直接実行可能です。
+   - 単一の自己完結型バイナリ（`suffolk.exe`）として動作するだけでなく、**WebAssembly (WASM)** に完全対応。ブラウザ（SheepCombWeb SPA）や VS Code 拡張機能（SheepWeave）のインメモリ環境で即座に直接実行可能です。
 
 2. **タグ最小化（Tag Minimization）の標準装備**
    - Word や PowerPoint で編集履歴やスペルチェックが原因で発生する「同一書式なのに寸断されたテキスト（ラン）」を自動結合します。
@@ -40,6 +40,24 @@ Web 翻訳支援ツール（CAT）**SheepCombWeb** のデータスキーマ（[`
    - **対照 CSV (`idx,source,target,note`)**: 日本語 Windows の Excel で即座に開ける UTF-8 BOM 付き。どの原文がどのシート・スライド・段落に対応しているかを明記。
    - **プレーン TXT (訳文のみ)**: 人間が InDesign や Word へ手作業でコピペできるよう、行順序を維持しつつ `{@0}` などの装飾タグ記号を自動除去。
    - **自動緊急リカバリ**: マージ処理中にエラーが発生した場合でも、強制終了前にフェイルセーフファイルが自動生成されます。
+
+---
+
+## 📑 目次
+
+- [📁 対応フォーマット](#-対応フォーマット)
+- [🛠️ ビルドとテスト（CLI）](#️-ビルドとテスト)
+- [🚀 CLI の使い方](#-cli-の使い方)
+- [🧪 テストデータによる検証ガイド](#-テストデータによる検証ガイド)
+- [🔍 Okapi Tikal との比較検証](#-okapi-tikal-との比較検証)
+- [🌐 WebAssembly (WASM) のビルドと使い方](#-webassembly-wasm-のビルドと使い方)
+  - [1. WASM のビルド](#1-wasm-のビルド)
+  - [2. 提供されるエントリポイント一覧](#2-提供されるエントリポイント一覧)
+  - [3. システム引数（JSON オブジェクト）の仕様](#3-システム引数json-オブジェクトの仕様)
+  - [4. ブラウザアプリ（Vue 3 / Nuxt 3 / SPA）での組み込み例](#4-ブラウザアプリvue-3--nuxt-3--spaでの組み込み例)
+  - [5. VS Code 拡張機能（SheepWeave 等）での組み込み例](#5-vs-code-拡張機能sheepweave-等での組み込み例)
+- [🏗️ クレート構成](#️-クレート構成)
+- [🛣️ 今後のロードマップ](#️-今後のロードマップ)
 
 ---
 
@@ -306,6 +324,180 @@ suffolk filter test_data/デバイスガイド.docx --to xliff
 
 ---
 
+## 🌐 WebAssembly (WASM) のビルドと使い方
+
+Suffolk は、ブラウザアプリケーション（Web / SPA / **SheepCombWeb**）および **VS Code 拡張機能**（**SheepWeave** 等）に組み込んで、ファイルシステムや Java 実行環境なしにインメモリで直接実行できる WASM パッケージ（`suffolk-wasm`）を提供しています。
+
+すべての WASM 関数は、**各種システム引数を柔軟な JSON オブジェクト（`camelCase` / `snake_case` 両対応）として受け取る** ことができます。
+
+### 1. WASM のビルド
+
+前提として `wasm-pack` がインストールされている必要があります（`cargo install wasm-pack`）。
+
+```bash
+# プロジェクトルートから一括ビルド（Web用とNode.js用の両方を生成）
+pnpm build:wasm
+# または PowerShell スクリプト
+./build-wasm.ps1
+
+# 個別にビルドする場合
+# ブラウザアプリ用 (--target web -> pkg/web)
+wasm-pack build crates/suffolk-wasm --target web --out-dir ../../pkg/web
+
+# VS Code 拡張機能 / Node.js 用 (--target nodejs -> pkg/node)
+wasm-pack build crates/suffolk-wasm --target nodejs --out-dir ../../pkg/node
+```
+
+ビルド完了後、`pkg/web`（ブラウザ用 ESM）および `pkg/node`（Node.js / VS Code 拡張用 CommonJS）に型定義（`.d.ts`）付きでパッケージが生成されます。
+
+### 2. 提供されるエントリポイント一覧
+
+| エントリポイント名 | 対象環境 | 主な役割・用途 |
+| :--- | :--- | :--- |
+| `suffolk_browser_extract` | ブラウザ / Web | 単一原稿バイナリ (`Uint8Array`) から `ShWvData` (JSON) または XLIFF を抽出 |
+| `suffolk_browser_extract_batch` | ブラウザ / Web | 複数ファイル（ドラッグ＆ドロップ）を一括抽出し、統合 `project.json` を生成 |
+| `suffolk_browser_merge` | ブラウザ / Web | スケルトン (`Uint8Array`) + 翻訳データから完成バイナリ (`Uint8Array`) を生成 |
+| `suffolk_browser_export_failsafe` | ブラウザ / Web | 救済用フェイルセーフ対照 CSV およびプレーン TXT を生成 |
+| `suffolk_vscode_extract` | VS Code 拡張 | `vscode.workspace.fs.readFile` の `Uint8Array` を直接渡して抽出 |
+| `suffolk_vscode_extract_batch` | VS Code 拡張 | ワークスペース内複数ファイルの一括抽出 |
+| `suffolk_vscode_merge` | VS Code 拡張 | 完成バイナリを出力（`vscode.workspace.fs.writeFile` で直接保存可） |
+| `suffolk_vscode_export_failsafe` | VS Code 拡張 | フェイルセーフ CSV / TXT の出力 |
+| `suffolk_vscode_segment_text` | VS Code 拡張 | 選択中テキストを Suffolk の文分割ルールでリアルタイム分割 (`string[]`) |
+| `suffolk_vscode_validate_tags` | VS Code 拡張 | 原文・訳文間のインライン書式タグ（`{@0}`等）の整合性をリアルタイム検証 |
+| `suffolk_vscode_get_supported_formats` | VS Code 拡張 | 対応フォーマット・拡張子一覧を取得（ダイアログ等のフィルター用） |
+| `extract`, `merge`, `export_failsafe` | 共通 | 汎用ショートハンド関数 |
+
+### 3. システム引数（JSON オブジェクト）の仕様
+
+```typescript
+// 抽出（Filter / Extract）オプション
+interface SuffolkFilterOptions {
+  seg?: boolean;                 // 文単位セグメンテーション（デフォルト: false）
+  srcLang?: string;              // 原文言語コード（デフォルト: "en"）
+  trgLang?: string;              // 訳文言語コード（デフォルト: "ja"）
+  rawTags?: boolean;             // タグ最小化を無効化（デフォルト: false）
+  to?: "shwv" | "xliff";         // 出力形式（デフォルト: "shwv"）
+  encoding?: string;             // 文字コード指定（省略時は自動判別）
+  
+  // Excel (XLSX) 多言語列フィルタ設定
+  xlsxSource?: string | string[]; // 原文列（例: "A" または ["A"]）
+  xlsxTarget?: string | string[]; // 訳文列（例: "B" または ["B"]）
+  xlsxContext?: string | string[];// コンテキスト列（例: "C" または ["C"]）
+  xlsxSkipRows?: number | string | number[]; // 除外行（例: 1 または [1]）
+  xlsxSheet?: string;            // 対象シート名正規表現（例: ".*"）
+  xlsxConfigCsv?: string;        // rules.csv の文字列内容をそのまま渡すことも可能
+}
+
+// 復元（Merge）オプション
+interface SuffolkMergeOptions {
+  encoding?: string;
+  xlsxSource?: string | string[];
+  xlsxTarget?: string | string[];
+  xlsxConfigCsv?: string;
+}
+```
+
+### 4. ブラウザアプリ（Vue 3 / Nuxt 3 / SPA）での組み込み例
+
+```javascript
+import init, {
+  suffolk_browser_extract,
+  suffolk_browser_merge,
+  suffolk_browser_export_failsafe
+} from './pkg/web/suffolk_wasm.js';
+
+// 1. WASM の初期化
+await init();
+
+// 2. ユーザーがドラッグ＆ドロップしたファイルの読み込みと抽出
+async function onFileDropped(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const fileBytes = new Uint8Array(arrayBuffer);
+
+  const options = {
+    seg: true,
+    srcLang: 'en',
+    trgLang: 'ja'
+  };
+
+  // ShWvData (JSON オブジェクト) が即座に返ります
+  const projectData = suffolk_browser_extract(fileBytes, file.name, options);
+  console.log('Extracted project:', projectData);
+  return projectData;
+}
+
+// 3. 翻訳確定後のマージとダウンロード
+function downloadMergedDocument(originalFileBytes, fileName, translationProject) {
+  const mergedBytes = suffolk_browser_merge(
+    originalFileBytes,
+    fileName,
+    translationProject,
+    {}
+  );
+
+  // Blob を作成してブラウザから直接ダウンロード
+  const blob = new Blob([mergedBytes], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `translated_${fileName}`;
+  a.click();
+}
+```
+
+### 5. VS Code 拡張機能（SheepWeave 等）での組み込み例
+
+```typescript
+import * as vscode from 'vscode';
+import * as wasm from './pkg/node/suffolk_wasm.js';
+
+export function activate(context: vscode.ExtensionContext) {
+  // コマンド: 原稿ファイルから翻訳プロジェクトを抽出
+  const filterCmd = vscode.commands.registerCommand('sheepweave.extractDocument', async (uri: vscode.Uri) => {
+    const fileBytes = await vscode.workspace.fs.readFile(uri);
+    const fileName = vscode.workspace.asRelativePath(uri);
+
+    const options = {
+      seg: true,
+      srcLang: 'ja',
+      trgLang: 'en'
+    };
+
+    // WASM で抽出実行
+    const projectData = wasm.suffolk_vscode_extract(fileBytes, fileName, options);
+
+    // project.json としてワークスペースに保存
+    const outUri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, 'project.json');
+    const jsonBytes = Buffer.from(JSON.stringify(projectData, null, 2), 'utf-8');
+    await vscode.workspace.fs.writeFile(outUri, jsonBytes);
+
+    vscode.window.showInformationMessage(`Suffolk: Extracted ${projectData.body.units.length} units!`);
+  });
+
+  // 便利機能: エディタで選択中のテキストを文分割
+  const segmentCmd = vscode.commands.registerCommand('sheepweave.segmentSelection', () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) return;
+
+    const selectionText = editor.document.getText(editor.selection);
+    const sentences: string[] = wasm.suffolk_vscode_segment_text(selectionText);
+    console.log('Segmented sentences:', sentences);
+  });
+
+  // 便利機能: 原文と訳文のタグ整合性チェック
+  const validateTags = (source: string, target: string) => {
+    const check = wasm.suffolk_vscode_validate_tags(source, target);
+    if (!check.valid) {
+      vscode.window.showWarningMessage(`Tag mismatch! Missing: ${check.missing.join(', ')}`);
+    }
+  };
+
+  context.subscriptions.push(filterCmd, segmentCmd);
+}
+```
+
+---
+
 ## 🏗️ クレート構成
 
 本リポジトリは Cargo ワークスペースとして設計されており、関心事が綺麗に分離されています:
@@ -324,20 +516,25 @@ Suffolk/
 │   ├── suffolk-formats/     # 各ファイル形式のフィルタ & マージ実装
 │   │   ├── src/traits.rs    # DocumentFilter / DocumentMerger トレイト
 │   │   ├── src/openxml/     # DOCX, XLSX, PPTX 実装
-│   │   │   ├── minimizer.rs # 書式ラン結合 & タグ最小化ロジック
-│   │   │   ├── xlsx.rs      # Excel多言語列フィルタ & inlineStr安全マージ
-│   │   │   ├── docx.rs      # Word段落抽出 & 書式保持マージ
-│   │   │   ├── pptx.rs      # PowerPointスライド & スピーカーノート処理
-│   │   │   └── config.rs    # ワークシートCSV設定ローダー
 │   │   ├── src/idml/        # Adobe InDesign (IDML) フィルタ & マージ実装
 │   │   ├── src/html/        # lol_html による高速ストリーミング HTML 処理
 │   │   ├── src/markdown/    # フロントマター & コードブロック保護 Markdown 処理
 │   │   └── src/text/        # encoding_rs による文字コード自動判定 PlainText 処理
 │   │
+│   ├── suffolk-wasm/        # Web & VS Code 向け WASM バインディング (pkg/web, pkg/node)
+│   │   ├── src/browser.rs   # ブラウザ向けエントリポイント
+│   │   ├── src/vscode.rs    # VS Code 拡張向けエントリポイント & 便利ツール
+│   │   ├── src/options.rs   # 柔軟な JSON システム引数パーサー
+│   │   └── src/core.rs      # メモリ上での抽出 & マージエンジン
+│   │
 │   └── suffolk-cli/         # CLI エントリポイント (suffolk.exe)
 │
+├── pkg/
+│   ├── web/                 # ブラウザ向け WASM パッケージ (--target web)
+│   └── node/                # VS Code 拡張向け WASM パッケージ (--target nodejs)
 ├── test_data/               # 各種検証用サンプルファイル
 ├── type.ts                  # SheepCombWeb 共通データスキーマ定義 (SSOT)
+├── test_wasm.js             # WASM 結合検証テストスクリプト
 └── README.md                # 本ドキュメント
 ```
 
@@ -346,7 +543,7 @@ Suffolk/
 ## 🛣️ 今後のロードマップ
 
 1. **SVG 画像フィルタ**: ベクターグラフィックス内テキストの抽出・マージ
-2. **WebAssembly (WASM) パッケージング**: `wasm-pack` を用い、SheepCombWeb（Next.js / SPA）ブラウザ内部でネイティブ動作するライブラリ化
+2. **WebAssembly (WASM) パッケージング**: ✅ **実装完了**（ブラウザ用 `pkg/web` および VS Code 拡張用 `pkg/node` を提供）
 
 ---
 

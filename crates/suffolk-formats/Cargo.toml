@@ -9,7 +9,7 @@ suffolk-ir = { path = "../suffolk-ir" }
 suffolk-codec = { path = "../suffolk-codec" }
 encoding_rs = "0.8"
 pulldown-cmark = "0.12"
-zip = "2.2"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
 quick-xml = { version = "0.37", features = ["serialize"] }
 csv = "1.3"
 lol_html = "2.1"

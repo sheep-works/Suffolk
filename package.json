@@ -1,0 +1,21 @@
+{
+  "name": "suffolk",
+  "version": "0.0.2",
+  "description": "Pure Rust Translation Filter & Merger for SheepFamily",
+  "scripts": {
+    "build:wasm": "pnpm build:wasm:web && pnpm build:wasm:node",
+    "build:wasm:web": "wasm-pack build crates/suffolk-wasm --target web --out-dir ../../pkg/web",
+    "build:wasm:node": "wasm-pack build crates/suffolk-wasm --target nodejs --out-dir ../../pkg/node",
+    "test:wasm": "node test_wasm.js"
+  },
+  "keywords": [
+    "wasm",
+    "cat",
+    "translation",
+    "localization",
+    "xliff",
+    "sheepfamily"
+  ],
+  "author": "SheepFamily",
+  "license": "Apache-2.0"
+}

@@ -33,19 +33,22 @@ pub struct WorksheetRule {
 
 impl WorksheetRule {
     /// CSV ファイルからワークシート設定ルールを読み込みます。
-    ///
-    /// ### 想定されるヘッダー形式
-    /// ```csv
-    /// sheet,source,target,context,skip_rows
-    /// Device_Config,A,B,C,1
-    /// .*_en,B,C,D,1 2
-    /// ```
     pub fn load_from_csv<P: AsRef<Path>>(path: P) -> Result<Vec<Self>, ConfigError> {
         let file = File::open(path)?;
+        Self::parse_from_reader(file)
+    }
+
+    /// CSV 文字列から直接ワークシート設定ルールを読み込みます（WASM / メモリ実行用）。
+    pub fn parse_from_str(csv_str: &str) -> Result<Vec<Self>, ConfigError> {
+        Self::parse_from_reader(csv_str.as_bytes())
+    }
+
+    /// 任意のリーダーからワークシート設定ルールを読み込みます。
+    pub fn parse_from_reader<R: std::io::Read>(reader: R) -> Result<Vec<Self>, ConfigError> {
         let mut rdr = csv::ReaderBuilder::new()
             .trim(csv::Trim::All)
             .flexible(true)
-            .from_reader(file);
+            .from_reader(reader);
 
         let mut rules = Vec::new();
 
