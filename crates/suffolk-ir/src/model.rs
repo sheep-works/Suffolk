@@ -126,7 +126,7 @@ impl UnitIR {
     }
 
     /// `UnitContext` の内容および追加のコンテキスト文字列から、
-    /// 人間可読な `note` 文字列（例: `[Sheet: Sheet1 | Cell: A10] Added: Ver 2.0`）を自動構築します。
+    /// 人間可読な `note` 文字列（例: `@sf[Sheet: Sheet1 | Cell: A10] Added: Ver 2.0`）を自動構築します。
     pub fn populate_note_from_context(&mut self, extra_note: Option<&str>) {
         let mut parts = Vec::new();
 
@@ -153,7 +153,7 @@ impl UnitIR {
         }
 
         let prefix = if !parts.is_empty() {
-            format!("[{}]", parts.join(" | "))
+            format!("@sf[{}]", parts.join(" | "))
         } else {
             String::new()
         };

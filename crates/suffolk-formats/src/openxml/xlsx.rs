@@ -371,12 +371,35 @@ impl DocumentFilter for XlsxFilter {
                                 .map(|tc| tc.to_ascii_uppercase())
                                 .and_then(|tc| cols.get(&tc).map(|c| c.text.clone()));
 
-                            // Look up context note if context col specified
-                            let ctx_text = options
-                                .xlsx_context_cols
-                                .get(col_idx)
-                                .map(|cc| cc.to_ascii_uppercase())
-                                .and_then(|cc| cols.get(&cc).map(|c| c.text.clone()));
+                            // Look up context note if context cols specified
+                            let ctx_text = if options.xlsx_source_cols.len() <= 1 {
+                                // 単一の原文列に対して複数のコンテキスト列が指定されている場合、空でないセルを " | " で結合
+                                let parts: Vec<String> = options
+                                    .xlsx_context_cols
+                                    .iter()
+                                    .filter_map(|cc| {
+                                        cols.get(&cc.to_ascii_uppercase())
+                                            .map(|c| c.text.trim().to_string())
+                                            .filter(|t| !t.is_empty())
+                                    })
+                                    .collect();
+                                if parts.is_empty() {
+                                    None
+                                } else {
+                                    Some(parts.join(" | "))
+                                }
+                            } else {
+                                // 複数の原文列がある場合は、インデックス対応
+                                options
+                                    .xlsx_context_cols
+                                    .get(col_idx)
+                                    .map(|cc| cc.to_ascii_uppercase())
+                                    .and_then(|cc| {
+                                        cols.get(&cc)
+                                            .map(|c| c.text.trim().to_string())
+                                            .filter(|t| !t.is_empty())
+                                    })
+                            };
 
                             let cell_ref = format!("{}{}", src_col_upper, row_idx);
                             let unit_id = format!("{}!{}", sheet.name, cell_ref);
@@ -420,13 +443,18 @@ impl DocumentFilter for XlsxFilter {
     }
 }
 
-/// Helper that parses sheet and cell references from note like "[Sheet: Sheet1 | Cell: A2] ..."
+/// Helper that parses sheet and cell references from note like "@sf[Sheet: Sheet1 | Cell: A2] ..."
+/// or legacy "[Sheet: Sheet1 | Cell: A2] ..."
 fn parse_sheet_and_cell_from_note(note: &str) -> Option<(String, String)> {
-    if !note.starts_with('[') {
+    let header_part = if let Some(stripped) = note.strip_prefix("@sf[") {
+        let end_bracket = stripped.find(']')?;
+        &stripped[..end_bracket]
+    } else if let Some(stripped) = note.strip_prefix('[') {
+        let end_bracket = stripped.find(']')?;
+        &stripped[..end_bracket]
+    } else {
         return None;
-    }
-    let end_bracket = note.find(']')?;
-    let header_part = &note[1..end_bracket];
+    };
 
     let mut sheet = None;
     let mut cell = None;
@@ -749,6 +777,11 @@ mod tests {
             .find(|u| u.context.row == Some(10))
             .expect("Row 10 not found");
         assert!(
+            u_row10.note.as_ref().unwrap().starts_with("@sf[Sheet: Sheet1 | Cell: A10]"),
+            "Note should start with @sf prefix: {:?}",
+            u_row10.note
+        );
+        assert!(
             u_row10.note.as_ref().unwrap().contains("Added: Ver 2.0"),
             "Note should contain context from C10"
         );
@@ -794,6 +827,68 @@ mod tests {
             sheet1_xml.contains(r#"r="B10""#),
             "Merged sheet1.xml must have cell B10"
         );
+    }
+
+    #[test]
+    fn test_extract_multiple_context_cols() {
+        let test_path = Path::new("../../test_data/Device_Config.xlsx");
+        if !test_path.exists() {
+            eprintln!("Skipping test: test_data/Device_Config.xlsx not found");
+            return;
+        }
+
+        let file = File::open(test_path).expect("Failed to open Device_Config.xlsx");
+        let filter = XlsxFilter;
+        let opts = FilterOptions {
+            source_lang: "en".to_string(),
+            target_lang: Some("ja".to_string()),
+            xlsx_source_cols: vec!["A".to_string()],
+            // C列とB列の2つをコンテキスト列として指定
+            xlsx_context_cols: vec!["C".to_string(), "B".to_string()],
+            xlsx_skip_rows: vec![1],
+            xlsx_sheet_pattern: Some("Sheet1".to_string()),
+            ..Default::default()
+        };
+
+        let doc = filter.extract(file, "Device_Config.xlsx", &opts).unwrap();
+        let u_row10 = doc
+            .units
+            .iter()
+            .find(|u| u.context.row == Some(10))
+            .expect("Row 10 not found");
+
+        let note = u_row10.note.as_ref().expect("Note should be present");
+        // C10のテキスト ("Added: Ver 2.0") と B10のテキストが " | " で結合されているか検証
+        assert!(
+            note.contains("Added: Ver 2.0"),
+            "Note should contain C10: {}",
+            note
+        );
+        assert!(
+            note.contains(" | "),
+            "Note should contain ' | ' delimiter for multiple context cols: {}",
+            note
+        );
+        assert!(
+            note.starts_with("@sf["),
+            "Note should start with @sf prefix: {}",
+            note
+        );
+    }
+
+    #[test]
+    fn test_parse_sheet_and_cell_from_note() {
+        // 新形式 @sf[...]
+        let res1 = parse_sheet_and_cell_from_note("@sf[Sheet: Sheet1 | Cell: A10] Note text");
+        assert_eq!(res1, Some(("Sheet1".to_string(), "A10".to_string())));
+
+        // 旧形式 [...] (後方互換性)
+        let res2 = parse_sheet_and_cell_from_note("[Sheet: MySheet | Cell: B20]");
+        assert_eq!(res2, Some(("MySheet".to_string(), "B20".to_string())));
+
+        // 無効な形式
+        let res3 = parse_sheet_and_cell_from_note("Just a normal comment");
+        assert_eq!(res3, None);
     }
 }
 
