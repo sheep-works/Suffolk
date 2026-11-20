@@ -95,7 +95,7 @@ pub struct UnitIR {
     pub placeholders: HashMap<usize, InlineTag>,
     /// 構造化された詳細コンテキスト情報
     pub context: UnitContext,
-    /// 同一ブロック/段落内の2文目以降であるかを示すフラグ（type.ts の isSub にマッピング）
+    /// 同一ブロック/段落内で後続に文が続くかを示すフラグ（末尾以外が true、末尾が false。SheepShuttle / type.ts の isSub に準拠）
     #[serde(default)]
     pub is_sub: bool,
     /// 元の所属段落・ブロックを識別するグループID（マージ時の再結合キー）
@@ -135,6 +135,9 @@ impl UnitIR {
         }
         if let Some(ref cell) = self.context.cell_ref {
             parts.push(format!("Cell: {}", cell));
+        }
+        if let Some(ref target_cell) = self.context.target_cell_ref {
+            parts.push(format!("TargetCell: {}", target_cell));
         }
         if let Some(ref header) = self.context.column_header {
             parts.push(format!("Header: {}", header));
@@ -198,6 +201,8 @@ pub struct UnitContext {
     pub sheet_name: Option<String>,
     /// セル番地（例: "A2", "B10"）
     pub cell_ref: Option<String>,
+    /// 訳文書き戻し先セル番地（多言語 Excel 等で原文セルと異なる場合。例: "B2", "G10"）
+    pub target_cell_ref: Option<String>,
     /// 1から始まる行番号
     pub row: Option<u32>,
     /// 列記号（例: "A", "AA"）

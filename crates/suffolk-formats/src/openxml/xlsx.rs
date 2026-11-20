@@ -365,11 +365,14 @@ impl DocumentFilter for XlsxFilter {
                             }
 
                             // Look up pre-existing target if target col specified
-                            let tgt_text = options
+                            let tgt_col_upper = options
                                 .xlsx_target_cols
                                 .get(col_idx)
-                                .map(|tc| tc.to_ascii_uppercase())
-                                .and_then(|tc| cols.get(&tc).map(|c| c.text.clone()));
+                                .map(|tc| tc.to_ascii_uppercase());
+
+                            let tgt_text = tgt_col_upper
+                                .as_ref()
+                                .and_then(|tc| cols.get(tc).map(|c| c.text.clone()));
 
                             // Look up context note if context cols specified
                             let ctx_text = if options.xlsx_source_cols.len() <= 1 {
@@ -402,6 +405,7 @@ impl DocumentFilter for XlsxFilter {
                             };
 
                             let cell_ref = format!("{}{}", src_col_upper, row_idx);
+                            let target_cell_ref = tgt_col_upper.map(|tc| format!("{}{}", tc, row_idx));
                             let unit_id = format!("{}!{}", sheet.name, cell_ref);
 
                             let mut unit = UnitIR::new(unit_id, seq, src_text);
@@ -409,6 +413,7 @@ impl DocumentFilter for XlsxFilter {
                             unit.pre = tgt_text;
                             unit.context.sheet_name = Some(sheet.name.clone());
                             unit.context.cell_ref = Some(cell_ref);
+                            unit.context.target_cell_ref = target_cell_ref;
                             unit.context.row = Some(row_idx);
                             unit.context.col = Some(src_col_upper);
 
@@ -443,9 +448,17 @@ impl DocumentFilter for XlsxFilter {
     }
 }
 
-/// Helper that parses sheet and cell references from note like "@sf[Sheet: Sheet1 | Cell: A2] ..."
+/// パースされた Excel セル参照情報
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedExcelNote {
+    pub sheet: String,
+    pub src_cell: String,
+    pub target_cell: Option<String>,
+}
+
+/// Helper that parses sheet and cell references from note like "@sf[Sheet: Sheet1 | Cell: A2 | TargetCell: B2] ..."
 /// or legacy "[Sheet: Sheet1 | Cell: A2] ..."
-fn parse_sheet_and_cell_from_note(note: &str) -> Option<(String, String)> {
+pub fn parse_sheet_and_cell_from_note(note: &str) -> Option<ParsedExcelNote> {
     let header_part = if let Some(stripped) = note.strip_prefix("@sf[") {
         let end_bracket = stripped.find(']')?;
         &stripped[..end_bracket]
@@ -458,18 +471,33 @@ fn parse_sheet_and_cell_from_note(note: &str) -> Option<(String, String)> {
 
     let mut sheet = None;
     let mut cell = None;
+    let mut target_cell = None;
 
     for piece in header_part.split('|') {
         let piece = piece.trim();
         if piece.starts_with("Sheet:") {
             sheet = Some(piece["Sheet:".len()..].trim().to_string());
         } else if piece.starts_with("Cell:") {
-            cell = Some(piece["Cell:".len()..].trim().to_string());
+            let c_val = piece["Cell:".len()..].trim();
+            if let Some((src, tgt)) = c_val.split_once("->") {
+                cell = Some(src.trim().to_string());
+                target_cell = Some(tgt.trim().to_string());
+            } else {
+                cell = Some(c_val.to_string());
+            }
+        } else if piece.starts_with("TargetCell:") {
+            target_cell = Some(piece["TargetCell:".len()..].trim().to_string());
+        } else if piece.starts_with("Target:") {
+            target_cell = Some(piece["Target:".len()..].trim().to_string());
         }
     }
 
     match (sheet, cell) {
-        (Some(s), Some(c)) => Some((s, c)),
+        (Some(s), Some(c)) => Some(ParsedExcelNote {
+            sheet: s,
+            src_cell: c,
+            target_cell,
+        }),
         _ => None,
     }
 }
@@ -478,8 +506,8 @@ impl DocumentMerger for XlsxMerger {
     /// 翻訳結果を元の Excel ファイル（スケルトン）にマージします。
     ///
     /// ### 処理フロー
-    /// 1. 各ユニットの `note`（例: `[Sheet1!A10]`）からシート名と元セル番地を取得。
-    /// 2. 原文列（A）から訳文書き込み列（B）へのマッピングを行い、書き込み先セル番地（B10）を決定。
+    /// 1. 各ユニットの `note`（例: `@sf[Sheet: Sheet1 | Cell: A10 | TargetCell: B10]`）からシート名と書き込み先セル番地を取得。
+    /// 2. 原文列（A）から訳文書き込み列（B）へのマッピング（または note に記録された TargetCell）に基づき書き込み先セル番地（B10）を決定。
     /// 3. 該当ワークシートの XML をストリーミング再構築し、`<c r="B10" t="inlineStr">` 形式で訳文を挿入。
     /// 4. OpenXML 仕様に準拠するため、行内のセル順序（A列 -> B列 -> C列...）を厳密に保証。
     /// 5. 変更されたワークシートのみを新しい Zip ストリームへ上書き出力。
@@ -512,15 +540,26 @@ impl DocumentMerger for XlsxMerger {
             }
 
             if let Some(ref note) = unit.note {
-                if let Some((sheet_name, src_cell)) = parse_sheet_and_cell_from_note(note) {
-                    if let Some((src_col, row)) = parse_cell_ref(&src_cell) {
-                        let tgt_col = src_to_tgt_map
-                            .get(&src_col)
-                            .cloned()
-                            .unwrap_or_else(|| src_col.clone());
-                        let tgt_cell = format!("{}{}", tgt_col, row);
-                        target_cells.insert((sheet_name, tgt_cell), restored);
-                    }
+                if let Some(parsed) = parse_sheet_and_cell_from_note(note) {
+                    let sheet_name = parsed.sheet;
+                    let tgt_cell = if let Some((src_col, row)) = parse_cell_ref(&parsed.src_cell) {
+                        // 1. CLIオプション等で明示的に src_to_tgt_map に指定がある場合はそれを優先適用
+                        if let Some(mapped_tgt_col) = src_to_tgt_map.get(&src_col) {
+                            format!("{}{}", mapped_tgt_col, row)
+                        } else if let Some(tc) = parsed.target_cell {
+                            // 2. note 内に TargetCell が記録されていればそれを採用
+                            tc
+                        } else {
+                            // 3. なければ原文セルを上書き
+                            parsed.src_cell
+                        }
+                    } else if let Some(tc) = parsed.target_cell {
+                        tc
+                    } else {
+                        parsed.src_cell
+                    };
+
+                    target_cells.insert((sheet_name, tgt_cell), restored);
                 }
             }
         }
@@ -777,8 +816,8 @@ mod tests {
             .find(|u| u.context.row == Some(10))
             .expect("Row 10 not found");
         assert!(
-            u_row10.note.as_ref().unwrap().starts_with("@sf[Sheet: Sheet1 | Cell: A10]"),
-            "Note should start with @sf prefix: {:?}",
+            u_row10.note.as_ref().unwrap().starts_with("@sf[Sheet: Sheet1 | Cell: A10 | TargetCell: B10]"),
+            "Note should start with @sf prefix and contain TargetCell: {:?}",
             u_row10.note
         );
         assert!(
@@ -788,6 +827,7 @@ mod tests {
         assert!(u_row10.note.as_ref().unwrap().contains("Cell: A10"));
 
         // Test Merge: provide translation for row 10
+        // MergeOptions に xlsx_target_cols を渡さなくても、note 内の TargetCell: B10 を自動解決できることを検証
         let mut trans_map = HashMap::new();
         trans_map.insert(
             u_row10.seq,
@@ -805,11 +845,7 @@ mod tests {
         let skeleton_file = File::open(test_path).unwrap();
         let mut merged_out = Cursor::new(Vec::new());
 
-        let merge_opts = MergeOptions {
-            xlsx_source_cols: vec!["A".to_string()],
-            xlsx_target_cols: vec!["B".to_string()],
-            ..Default::default()
-        };
+        let merge_opts = MergeOptions::default(); // 空のオプションでも自動解決
 
         merger
             .merge(skeleton_file, &trans_map, &mut merged_out, &merge_opts)
@@ -878,13 +914,49 @@ mod tests {
 
     #[test]
     fn test_parse_sheet_and_cell_from_note() {
-        // 新形式 @sf[...]
-        let res1 = parse_sheet_and_cell_from_note("@sf[Sheet: Sheet1 | Cell: A10] Note text");
-        assert_eq!(res1, Some(("Sheet1".to_string(), "A10".to_string())));
+        // 新形式 @sf[...] with TargetCell
+        let res1 = parse_sheet_and_cell_from_note("@sf[Sheet: Sheet1 | Cell: A10 | TargetCell: B10] Note text");
+        assert_eq!(
+            res1,
+            Some(ParsedExcelNote {
+                sheet: "Sheet1".to_string(),
+                src_cell: "A10".to_string(),
+                target_cell: Some("B10".to_string()),
+            })
+        );
+
+        // 新形式 @sf[...] without TargetCell
+        let res1_no_tgt = parse_sheet_and_cell_from_note("@sf[Sheet: Sheet1 | Cell: A10] Note text");
+        assert_eq!(
+            res1_no_tgt,
+            Some(ParsedExcelNote {
+                sheet: "Sheet1".to_string(),
+                src_cell: "A10".to_string(),
+                target_cell: None,
+            })
+        );
+
+        // 矢印記法 Cell: A10 -> B10
+        let res_arrow = parse_sheet_and_cell_from_note("@sf[Sheet: Sheet1 | Cell: A10 -> B10]");
+        assert_eq!(
+            res_arrow,
+            Some(ParsedExcelNote {
+                sheet: "Sheet1".to_string(),
+                src_cell: "A10".to_string(),
+                target_cell: Some("B10".to_string()),
+            })
+        );
 
         // 旧形式 [...] (後方互換性)
         let res2 = parse_sheet_and_cell_from_note("[Sheet: MySheet | Cell: B20]");
-        assert_eq!(res2, Some(("MySheet".to_string(), "B20".to_string())));
+        assert_eq!(
+            res2,
+            Some(ParsedExcelNote {
+                sheet: "MySheet".to_string(),
+                src_cell: "B20".to_string(),
+                target_cell: None,
+            })
+        );
 
         // 無効な形式
         let res3 = parse_sheet_and_cell_from_note("Just a normal comment");

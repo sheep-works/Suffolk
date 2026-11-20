@@ -228,7 +228,7 @@ fn is_abbreviation(chars: &[char], seg_start: usize, dot_idx: usize) -> bool {
 /// 中間表現 `DocumentIR` 全体に対して文単位セグメンテーションを適用します。
 ///
 /// - 各 `UnitIR` を文に細分化します。
-/// - 同一ブロック内の先頭文は `is_sub: false`、2文目以降は `is_sub: true` となります。
+/// - 同一ブロック内の末尾以外の文は `is_sub: true`、末尾の文は `is_sub: false` となります（SheepShuttle / xliffParser.ts 互換）。
 /// - 全ての分割文は元の所属ブロック（段落）を示す共通の `group_id` を保持します。
 /// - プレースホルダーは該当する文に適切に割り振られます。
 pub fn segment_document_ir(ir: &DocumentIR) -> DocumentIR {
@@ -254,9 +254,11 @@ pub fn segment_document_ir(ir: &DocumentIR) -> DocumentIR {
             new_units.push(u);
             global_seq += 1;
         } else {
+            let total_spans = spans.len();
             for (sub_idx, span) in spans.into_iter().enumerate() {
-                let is_sub = sub_idx > 0;
-                let sub_id = if is_sub {
+                let is_last = sub_idx == total_spans - 1;
+                let is_sub = !is_last;
+                let sub_id = if sub_idx > 0 {
                     format!("{}_s{}", unit.id, sub_idx + 1)
                 } else {
                     unit.id.clone()
@@ -276,9 +278,9 @@ pub fn segment_document_ir(ir: &DocumentIR) -> DocumentIR {
                     id: sub_id,
                     seq: global_seq,
                     source: span.text,
-                    target: if is_sub { None } else { unit.target.clone() },
-                    pre: if is_sub { None } else { unit.pre.clone() },
-                    note: unit.note.clone(),
+                    target: if sub_idx > 0 { None } else { unit.target.clone() },
+                    pre: if sub_idx > 0 { None } else { unit.pre.clone() },
+                    note: if sub_idx == 0 { unit.note.clone() } else { None },
                     memo: unit.memo.clone(),
                     placeholders: sub_placeholders,
                     context: unit.context.clone(),
@@ -372,13 +374,34 @@ mod tests {
         let segmented = segment_document_ir(&ir);
         assert_eq!(segmented.units.len(), 2);
         assert_eq!(segmented.units[0].seq, 1);
-        assert_eq!(segmented.units[0].is_sub, false);
+        assert_eq!(segmented.units[0].is_sub, true);
         assert_eq!(segmented.units[0].group_id, 1);
         assert_eq!(segmented.units[0].source, "Hello world.");
 
         assert_eq!(segmented.units[1].seq, 2);
-        assert_eq!(segmented.units[1].is_sub, true);
+        assert_eq!(segmented.units[1].is_sub, false);
         assert_eq!(segmented.units[1].group_id, 1);
         assert_eq!(segmented.units[1].source, "This is test.");
+    }
+
+    #[test]
+    fn test_segment_document_ir_three_sentences() {
+        let meta = DocumentMeta {
+            source_file: "test.docx".to_string(),
+            source_lang: "en".to_string(),
+            target_lang: Some("ja".to_string()),
+            format: DocumentFormat::Docx,
+            encoding: "UTF-8".to_string(),
+        };
+
+        let mut ir = DocumentIR::new(meta);
+        let u1 = UnitIR::new("p1", 1, "Sentence 1. Sentence 2. Sentence 3.");
+        ir.add_unit(u1);
+
+        let segmented = segment_document_ir(&ir);
+        assert_eq!(segmented.units.len(), 3);
+        assert_eq!(segmented.units[0].is_sub, true); // 末尾以外: true
+        assert_eq!(segmented.units[1].is_sub, true); // 末尾以外: true
+        assert_eq!(segmented.units[2].is_sub, false); // 末尾: false
     }
 }

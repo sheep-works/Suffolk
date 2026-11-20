@@ -397,25 +397,12 @@ impl ShWvData {
         let mut current_placeholders = HashMap::new();
         let mut current_note = None;
         let mut current_source = None;
+        let mut is_first_in_block = true;
 
         for unit in filtered_units {
             let is_sub = unit.is_sub.unwrap_or(false);
-            if !is_sub {
-                // 前のブロックを確定して登録
-                if block_seq > 0 {
-                    block_map.insert(
-                        block_seq,
-                        TranslatedUnit {
-                            idx: block_seq,
-                            source: current_source.take(),
-                            target: current_target.clone(),
-                            placeholders: current_placeholders.clone(),
-                            note: current_note.take(),
-                            is_sub: false,
-                        },
-                    );
-                }
 
+            if is_first_in_block {
                 block_seq += 1;
                 // 未翻訳（tgt が空）の場合は原文（src）をフォールバックとして採用
                 let effective_tgt = if unit.tgt.trim().is_empty() {
@@ -442,10 +429,30 @@ impl ShWvData {
                     current_placeholders.extend(ph.clone());
                 }
             }
+
+            // is_sub が false（末尾ユニット）に達したら、このブロックを確定して登録 (SheepShuttle互換)
+            if !is_sub {
+                block_map.insert(
+                    block_seq,
+                    TranslatedUnit {
+                        idx: block_seq,
+                        source: current_source.take(),
+                        target: current_target.clone(),
+                        placeholders: current_placeholders.clone(),
+                        note: current_note.take(),
+                        is_sub: false,
+                    },
+                );
+                current_target.clear();
+                current_placeholders.clear();
+                is_first_in_block = true;
+            } else {
+                is_first_in_block = false;
+            }
         }
 
-        // 最終ブロックの確定登録
-        if block_seq > 0 {
+        // ループ終了時、万一末尾ユニットが is_sub: true で終わっていた場合のフェイルセーフ
+        if !is_first_in_block && block_seq > 0 {
             block_map.insert(
                 block_seq,
                 TranslatedUnit {
@@ -501,7 +508,7 @@ impl TranslatedUnit {
 
 /// 汎用的なセグメント再結合ヘルパー関数。
 /// リスト状の `TranslatedUnit`（XLIFFパース後など）を受け取り、
-/// `is_sub == true` の文を直前の親文に結合して段落連番（1始まり）をキーとするマップを生成します。
+/// `is_sub == true` の文を後続の文に結合して段落連番（1始まり）をキーとするマップを生成します（SheepShuttle互換）。
 pub fn recombine_translated_units(
     units: &[TranslatedUnit],
     target_lang: &str,
@@ -513,22 +520,12 @@ pub fn recombine_translated_units(
     let mut current_placeholders = HashMap::new();
     let mut current_note = None;
     let mut current_source = None;
+    let mut is_first_in_block = true;
 
     for unit in units {
-        if !unit.is_sub {
-            if block_seq > 0 {
-                block_map.insert(
-                    block_seq,
-                    TranslatedUnit {
-                        idx: block_seq,
-                        source: current_source.take(),
-                        target: current_target.clone(),
-                        placeholders: current_placeholders.clone(),
-                        note: current_note.take(),
-                        is_sub: false,
-                    },
-                );
-            }
+        let is_sub = unit.is_sub;
+
+        if is_first_in_block {
             block_seq += 1;
             let effective_tgt = if unit.target.trim().is_empty() {
                 unit.source.clone().unwrap_or_default()
@@ -551,9 +548,28 @@ pub fn recombine_translated_units(
             current_target.push_str(&effective_sub_tgt);
             current_placeholders.extend(unit.placeholders.clone());
         }
+
+        if !is_sub {
+            block_map.insert(
+                block_seq,
+                TranslatedUnit {
+                    idx: block_seq,
+                    source: current_source.take(),
+                    target: current_target.clone(),
+                    placeholders: current_placeholders.clone(),
+                    note: current_note.take(),
+                    is_sub: false,
+                },
+            );
+            current_target.clear();
+            current_placeholders.clear();
+            is_first_in_block = true;
+        } else {
+            is_first_in_block = false;
+        }
     }
 
-    if block_seq > 0 {
+    if !is_first_in_block && block_seq > 0 {
         block_map.insert(
             block_seq,
             TranslatedUnit {
@@ -586,9 +602,10 @@ mod tests {
         };
         let mut ir1 = DocumentIR::new(meta1);
         let mut u1 = UnitIR::new("p1", 1, "Sentence 1.");
+        u1.is_sub = true; // SheepShuttle互換: 末尾以外が is_sub: true
         u1.target = Some("文1。".to_string());
         let mut u2 = UnitIR::new("p1_s2", 2, "Sentence 2.");
-        u2.is_sub = true;
+        u2.is_sub = false; // 末尾は is_sub: false
         u2.target = Some("文2。".to_string());
         ir1.add_unit(u1);
         ir1.add_unit(u2);
@@ -624,5 +641,48 @@ mod tests {
         let map2 = shwv.extract_recombined_translation_map(Some((3, 3)));
         assert_eq!(map2.len(), 1);
         assert_eq!(map2.get(&1).unwrap().target, "ドキュメント2 セル1。");
+    }
+
+    #[test]
+    fn test_recombine_three_sentences() {
+        let units = vec![
+            TranslatedUnit {
+                idx: 1,
+                source: Some("S1".to_string()),
+                target: "T1".to_string(),
+                placeholders: HashMap::new(),
+                note: None,
+                is_sub: true, // 末尾以外
+            },
+            TranslatedUnit {
+                idx: 2,
+                source: Some("S2".to_string()),
+                target: "T2".to_string(),
+                placeholders: HashMap::new(),
+                note: None,
+                is_sub: true, // 末尾以外
+            },
+            TranslatedUnit {
+                idx: 3,
+                source: Some("S3".to_string()),
+                target: "T3".to_string(),
+                placeholders: HashMap::new(),
+                note: None,
+                is_sub: false, // 末尾
+            },
+            TranslatedUnit {
+                idx: 4,
+                source: Some("S4".to_string()),
+                target: "T4".to_string(),
+                placeholders: HashMap::new(),
+                note: None,
+                is_sub: false, // 単独
+            },
+        ];
+
+        let map = recombine_translated_units(&units, "ja");
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get(&1).unwrap().target, "T1T2T3");
+        assert_eq!(map.get(&2).unwrap().target, "T4");
     }
 }
